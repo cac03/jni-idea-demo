@@ -1,0 +1,167 @@
+= JNI
+
+Данный проект -- небольшое демо JNI -- интерфейса, позволяющего Java коду вызывать код, написанный на нативных языках (включая C и C++).
+
+== Вызов C кода из Java
+
+=== Объявление `native` метода в Java
+
+Первый шаг -- объявить `native` метод в Java коде.
+
+Пример:
+
+[source,java]
+----
+public class Native {
+    public static native void sayHelloWorld();
+}
+----
+
+_См. file://src/java/ru/hse/jnidemo/Native.java[`Native.java`]_
+
+=== Создание заголовочных C файлов
+
+Далее необходимо особым образом вызвать компилятор Java -- javac:
+
+[source,bash]
+----
+javac -h src/c src/java/ru/hse/jnidemo/Native.java
+----
+
+после этого в директории `src/c` появится файл `ru_hse_jnidemo_Native.h`.
+
+=== Реализация метода на C
+
+После создания заголовочного файла можно приступить к реализации функции и компиляции библиотеки.
+
+Далее рассматривается, на мой взгляд, самый простой способ, он использует https://www.jetbrains.com/clion/[CLion] -- IDE для C и C++ от JetBrains.
+
+==== Создание `.c` файла
+
+Самый простой способ на данном этапе -- скопировать `.h` файл, поменяв расширение на `.c` и редактировать уже его.
+
+==== `CMakeLists.txt`
+
+CLion лучше всего работает с https://cmake.org/[cmake] проектами.
+
+_Грубо_ говоря, `cmake` -- аналог Maven'а.
+
+Чтобы открыть проект в CLion можно создать файл с описанием `cmake`-проекта -- `CMakeLists.txt`:
+
+[source,text]
+----
+cmake_minimum_required(VERSION 3.13)
+
+project(jnitests)
+
+find_package(JNI MODULE REQUIRED)
+
+message("Jni found in ${JNI_INCLUDE_DIRS}")
+include_directories("${JNI_INCLUDE_DIRS}")
+
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(SOURCE_FILES ru_hse_jnidemo_Native.c)
+
+add_library(jnitests SHARED ${SOURCE_FILES})
+----
+
+_См. file://src/c/CMakeLists.txt[`src/c/CMakeLists.txt`]_
+
+==== Открытие проекта в CLion
+
+Создав `CMakeLists.txt`, можно открыть проект в CLion:
+
+. File
+. Open
+. Выбрать `CMakeLists.txt`
+
+Если у Вас Windows и Toolchain -- Visual Studio, пожалуйста, убедитесь в том, что architecture соответствует архитектуре Вашей машины (скорее всего, это -- `amd64`)
+
+После этого -- File -> Reload CMake Project
+
+==== Код на C
+
+.`ru_hse_jnidemo_Native.c`
+[source,cpp]
+----
+void Java_ru_hse_jnidemo_Native_sayHelloWorld
+  (JNIEnv * env, jclass clazz) {
+  printf("Hello from native method\n");
+}
+----
+
+Код выше просто выводит `Hello from native method` в консоль.
+
+==== Сборка библиотеки
+
+В CLion с CMake -- всё относительно просто: Build -> Build Project
+
+В случае успеха в рабочей директории cmake (скорее всего, это `cmake-build-debug`) появится файл библиотеки, его имя -- разное в зависимости от операционной системы. Для Linux -- `libjnitests.so`, для Windows -- `libjnitests.dll`.
+
+==== Загрузка библиотеки в Java
+
+Чтобы загрузить собранную библиотеку можно воспользоваться методами:
+
+. https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/System.html#load(java.lang.String)[`System#load`] -- загружает библиотеку по *абсолютному* пути.
+. https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/lang/System.html#loadLibrary(java.lang.String)[`System#loadLibrary`] -- находит библиотеку в пути, указанном в `java.library.path`
+
+Для демо мы будем использовать первый метод, для этого необходимо:
+
+. Скопировать абсолютный путь к билиботеке
+. Вызвать `System.load`, указав полученный путь. Это можно сделать в `static`-инициализаторе, например, так:
+
+.`Native.java`
+[source,java]
+----
+public class Native {
+    static {
+        System.load("/home/caco3/IdeaProjects/jni-idea-demo/src/c/cmake-build-debug/libjnitests.so");
+    }
+
+    public static native void sayHelloWorld();
+}
+----
+
+_Путь необходимо поменять на свой_
+
+==== Вызов `native` метода
+
+Ну, наконец, можно вызвать реализованный метод:
+
+.`Main.java`
+[source,java]
+----
+public class Main {
+    public static void main(String[] args) {
+        Native.sayHelloWorld();
+    }
+}
+----
+
+если всё прошло успешно, то в консоль выведется:
+
+[source,text]
+----
+Hello from native method
+----
+
+== Решение проблем
+
+=== `UnsatisfiedLinkError: ... Can't load IA 32-bit .dll on a AMD 64-bit platform`
+
+Скорее всего, используется Visual Studio Toolchain, и для него указана не так архитектура.
+
+Чтобы исправить необходимо:
+
+. File
+. Settings
+. Build, Execution, Deployment
+. Toolchains
+. Visual Studio
+. Поменять Architecture на `amd64`
+
+
+== Ссылки
+
+* https://www.youtube.com/watch?v=DVTeZdtuHS0[Иван Углянский — В нативный код из уютного мира Java: Путешествие туда и обратно]
+* https://github.com/mkowsiak/jnicookbook[JNI Cookbook]
